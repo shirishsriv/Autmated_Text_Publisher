@@ -65,7 +65,7 @@ This is a Flask-based web application that allows users to scrape book chapters 
 └── requirements.txt       # Python dependencies
 
 ## 📚 Example Use Case
-* Input: https://en.wikisource.org/wiki/Example_Book_Chapter
+* Input: https://en.wikisource.org/wiki/The_Gates_of_Morning/Book_1/Chapter_1
 
 * Instruction: Summarize and remove outdated language.
 
