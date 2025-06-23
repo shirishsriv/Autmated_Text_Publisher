@@ -36,7 +36,7 @@ This is a Flask-based web application that allows users to scrape book chapters 
 1. **Clone the Repository**
 
    ```bash
-   git clone [https://github.com/shirishsriv/Autmated_Text_Publisher.git]
+   git clone https://github.com/shirishsriv/Autmated_Text_Publisher.git
    cd book-chapter-sanitizer
 
 ## Installation dependencies
