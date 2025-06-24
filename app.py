@@ -1,25 +1,26 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, url_for
 from playwright.sync_api import sync_playwright
 import os
 import re
 import chromadb
+from chromadb.config import Settings
 import google.generativeai as genai
 
 app = Flask(__name__)
 
-# Configure Gemini API
+# Set up Gemini API
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-gemini_model = genai.GenerativeModel("gemini-2.5-flash-lite-preview-06-17")  # Or "gemini-pro", based on your access
+gemini_model = genai.GenerativeModel("gemini-1.5-flash")
 
-# Setup ChromaDB
+# Initialize ChromaDB
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection("sanitized_chapters")
 
-# Utility to sanitize filenames
-def sanitize_filename(title):
-    return re.sub(r'[^a-zA-Z0-9_\- ]+', '', title).replace(" ", "_")
+# Sanitize file names
+def sanitize_filename(name):
+    return re.sub(r'[^a-zA-Z0-9_\- ]+', '', name).replace(" ", "_")
 
-# Scrape chapter content
+# Scrape content from a URL
 def scrape_chapter_to_file(url):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -30,7 +31,7 @@ def scrape_chapter_to_file(url):
         title = page.query_selector('#firstHeading').inner_text()
         content_element = page.query_selector('#mw-content-text .mw-parser-output')
         paragraphs = content_element.query_selector_all("p")
-        content = "\n\n".join([p.inner_text().strip() for p in paragraphs if p.inner_text().strip()])
+        content = "\n\n".join([p.inner_text().strip() for p in paragraphs if p.inner_text().strip() != ""])
         browser.close()
 
         filename = sanitize_filename(title) + ".txt"
@@ -38,13 +39,12 @@ def scrape_chapter_to_file(url):
             f.write(f"{title}\n\n{content}")
         return filename, title, content
 
-# Sanitize with Gemini
+# Use Gemini to sanitize text
 def sanitize_with_gemini(raw_text, instruction):
     prompt = f"{instruction}\n\n{raw_text}"
     response = gemini_model.generate_content(prompt)
     return response.text.strip()
 
-# Home route
 @app.route("/", methods=["GET", "POST"])
 def index():
     message = ""
@@ -63,41 +63,53 @@ def index():
         elif "sanitize" in request.form:
             try:
                 raw_text = request.form.get("raw_text")
-                title = request.form.get("title", "Unknown Chapter")
+                title = request.form.get("title", "Untitled Chapter")
                 user_prompt = request.form.get("edit_instruction", "Clean and sanitize the chapter.")
+
                 cleaned_text = sanitize_with_gemini(raw_text, user_prompt)
-                message = "✅ Text sanitized. You can now archive it."
+                message = "✅ Text sanitized successfully."
+
             except Exception as e:
-                message = f"❌ Error during sanitization: {str(e)}"
+                message = f"❌ Error sanitizing text: {str(e)}"
 
         elif "archive" in request.form:
             try:
-                title = request.form.get("title", "Untitled")
                 cleaned_text = request.form.get("cleaned_text")
-                doc_id = sanitize_filename(title)
+                title = request.form.get("title", "Untitled Chapter")
+                filename_input = request.form.get("filename")
+
+                # Determine ID
+                doc_id = sanitize_filename(filename_input) if filename_input else sanitize_filename(title)
+
+                # Save to ChromaDB
                 collection.add(
                     documents=[cleaned_text],
                     metadatas=[{"title": title}],
                     ids=[doc_id]
                 )
-                message = f"✅ Text archived to ChromaDB with ID '{doc_id}'"
+
+                # Save to local archive
+                os.makedirs("archive", exist_ok=True)
+                file_path = os.path.join("archive", doc_id + ".txt")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(f"{title}\n\n{cleaned_text}")
+
+                message = f"✅ Text archived with ID '{doc_id}' and saved locally."
+
             except Exception as e:
-                message = f"❌ Error archiving to ChromaDB: {str(e)}"
+                message = f"❌ Error archiving text: {str(e)}"
 
     return render_template("index.html", message=message, raw_text=raw_text, cleaned_text=cleaned_text, title=title)
 
-# Archive view route
 @app.route("/archive", methods=["GET"])
 def archive():
     try:
-        documents = collection.get(include=["documents", "metadatas"])
-        docs = [
-            {"document": doc, "metadata": meta}
-            for doc, meta in zip(documents["documents"], documents["metadatas"])
-        ]
+        results = collection.get(include=["documents", "metadatas"])
+        documents = [{"document": d, "metadata": m} for d, m in zip(results["documents"], results["metadatas"])]
+        return render_template("archive.html", documents=documents)
     except Exception as e:
-        docs = []
-    return render_template("archive.html", documents=docs)
+        return f"❌ Error loading archive: {str(e)}"
 
 if __name__ == "__main__":
     app.run(debug=True)
+
