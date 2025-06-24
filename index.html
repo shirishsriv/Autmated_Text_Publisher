@@ -36,7 +36,12 @@
     <textarea readonly>{{ cleaned_text }}</textarea>
 
     <form method="post">
-        <input type="hidden" name="title" value="{{ title }}">
+        <label for="title">Edit Chapter Title (Optional):</label>
+        <input type="text" name="title" value="{{ title }}">
+
+        <label for="filename">Change File Name Before Saving (Optional):</label>
+        <input type="text" name="filename" value="{{ title | replace(' ', '_') }}">
+
         <input type="hidden" name="cleaned_text" value="{{ cleaned_text }}">
         <button type="submit" name="archive">💾 Archive Text</button>
     </form>
